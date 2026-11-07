@@ -47,13 +47,20 @@ class YahooDownloader:
         # Download and save the data in a pandas DataFrame:
         data_df = pd.DataFrame()
         num_failures = 0
+        download_kwargs = {}
+        if proxy is not None:
+            # yfinance >= 1.0 removed the `proxy` argument from download()
+            if hasattr(yf, "set_config"):
+                yf.set_config(proxy=proxy)
+            else:
+                download_kwargs["proxy"] = proxy
         for tic in self.ticker_list:
             temp_df = yf.download(
                 tic,
                 start=self.start_date,
                 end=self.end_date,
-                proxy=proxy,
                 auto_adjust=auto_adjust,
+                **download_kwargs,
             )
             if temp_df.columns.nlevels != 1:
                 temp_df.columns = temp_df.columns.droplevel(1)

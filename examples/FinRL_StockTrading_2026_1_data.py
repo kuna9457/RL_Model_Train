@@ -50,6 +50,26 @@ df_raw = YahooDownloader(
     end_date=TRADE_END_DATE,
     ticker_list=list(DOW_30_HISTORICAL_UNIVERSE),
 ).fetch_data()
+# Yahoo no longer serves retired tickers. United Technologies (UTX) became RTX,
+# and Yahoo keeps its full pre-2020 history under RTX, so relabel that history
+# as UTX for the dates when UTX was a Dow member.
+# Likewise DowDuPont (DWDP, 2017-09 to 2019-04) is carried under DD on Yahoo.
+# (old ticker, Yahoo ticker that holds its history, last date it was a member)
+_RETIRED_TICKER_ALIASES = (
+    ("UTX", "RTX", "2020-04-06"),
+    ("DWDP", "DD", "2019-04-02"),
+)
+_dates = pd.to_datetime(df_raw["date"])
+_aliased = []
+for _old, _new, _until in _RETIRED_TICKER_ALIASES:
+    if _old not in set(df_raw["tic"]):
+        _rows = df_raw[(df_raw["tic"] == _new) & (_dates < pd.Timestamp(_until))].copy()
+        _rows["tic"] = _old
+        _aliased.append(_rows)
+if _aliased:
+    df_raw = pd.concat([df_raw, *_aliased], ignore_index=True)
+    df_raw = df_raw.sort_values(["date", "tic"]).reset_index(drop=True)
+
 print("\n=== Raw data ===")
 print(df_raw.head())
 
@@ -66,7 +86,15 @@ fe = FeatureEngineer(
 
 processed = fe.preprocess_data(df_raw)
 
-list_ticker = list(DOW_30_HISTORICAL_UNIVERSE)
+_available = set(processed["tic"])
+_unavailable = sorted(set(DOW_30_HISTORICAL_UNIVERSE) - _available)
+if _unavailable:
+    print(
+        f"WARNING: no Yahoo Finance data for {_unavailable} (delisted/retired); "
+        "dropping them from the universe, so the Dow has fewer than 30 stocks "
+        "while they were members."
+    )
+list_ticker = [t for t in DOW_30_HISTORICAL_UNIVERSE if t in _available]
 list_date = list(
     pd.date_range(processed["date"].min(), processed["date"].max()).astype(str)
 )
